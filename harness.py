@@ -17,6 +17,8 @@ import numpy
 import subprocess
 import resource
 from multiprocessing.pool import ThreadPool
+from itertools import product, izip
+from jinja2 import Template
 
 Problem = namedtuple('Problem', ['k', 'v', 'w', 'file_name'])
 
@@ -107,16 +109,18 @@ def solve(solver_file_name, problem, time_limit, mem_limit):
             else:
                 true_obj = measure_obj(problem, soln)
                 r = Result('FEASIBLE', obj=true_obj, soln=soln)
-    print 'job completed: {"%s", %s}' % (problem.file_name, r.status)
+    print 'job completed: {"%s", "%s", %s}' % (solver_file_name, problem.file_name, r.status)
     return r
 
 def parse_args(argv):
     p = argparse.ArgumentParser()
-    p.add_argument('solver', metavar='SOLVER_PY')
-    p.add_argument('problem_files', metavar='PROBLEM_FILE', nargs='+')
+    p.add_argument('problem_dir', metavar='PROBLEM_DIR', nargs=1)
+    p.add_argument('solvers', metavar='SOLVER_PY', nargs='+')
     p.add_argument('--time-limit', metavar='t', type=int, default=60, help='max cpu time (seconds)')
     p.add_argument('--mem-limit', metavar='m', type=int, default=2000000000, help='max mem (bytes)')
     p.add_argument('-n', metavar='NPROCS', type=int, default=4, help='number of solves to test in parallel')
+    p.add_argument('--report-template', metavar='FILE', default='report.template')
+    p.add_argument('--out', metavar='FILE', default='report.html')
     return p.parse_args(argv)
 
 
@@ -129,26 +133,56 @@ def collect(file_names):
             bucket += [os.path.join(file_name, x) for x in os.listdir(file_name)]
     return bucket
 
+Job = namedtuple('Job', ['solver', 'problem', 'time_limit', 'mem_limit'])
+job_key = lambda job : (job.solver, job.problem.file_name)
+
+fmt_result = lambda result : result.obj if result.status == 'FEASIBLE' else result.status
+
+def strip_common_prefix(names):
+    if not names:
+        return names
+    if not names[0]:
+        return names
+    c = names[0][0]
+    can_strip = all(name.startswith(c) for name in names)
+    if can_strip:
+        return strip_common_prefix([name[1:] for name in names])
+    else:
+        return names
+
+def make_nicknames(names):
+    return dict(izip(names, strip_common_prefix(names)))
+
 def main():
     args = parse_args(sys.argv[1:])
-    problems = sorted(map(load_problem, collect(args.problem_files)), key=problem_order)
+    problems = sorted(map(load_problem, collect(args.problem_dir)), key=problem_order)
 
-    print 'collected problems:'
-    for i, p in enumerate(problems):
-        print '%4d\t%s' % (i, fmt_problem(p))
+    print 'collected %d problems from "%s"' % (len(problems), args.problem_dir[0])
 
-    jobs = [(args.solver, p, args.time_limit, args.mem_limit) for p in problems]
+    jobs = [Job(s, p, args.time_limit, args.mem_limit) for p,s in product(problems, args.solvers)]
 
     print 'got %d test jobs' % len(jobs)
+
     print 'running test jobs:'
     pool = ThreadPool(args.n)
     results = pool.map(lambda args : solve(*args), jobs)
-    print
+    job_results = dict(izip(map(job_key, jobs), results))
 
-    print 'summary of results:'
-    for i, (p, r) in enumerate(zip(problems, results)):
-        print '%4d\t%s' % (i, fmt_problem(p))
-        print '\t%s' % str(r)
+    fmt_s = make_nicknames(args.solvers)
+    fmt_p = make_nicknames([p.file_name for p in problems])
+
+    rows = [['Problem'] + [fmt_s[s] for s in args.solvers]]
+    for p in problems:
+        solver_results = [fmt_result(job_results[(s, p.file_name)]) for s in args.solvers]
+        rows.append([fmt_p[p.file_name]] + solver_results)
+
+    # render it
+    with open(args.report_template, 'r') as f_template:
+        t = Template(f_template.read())
+    with open(args.out, 'w') as f_out:
+        f_out.write(t.render(rows=rows))
+
+
 
 if __name__ == '__main__':
     main()
