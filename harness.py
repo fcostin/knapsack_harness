@@ -1,3 +1,6 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
 """
 test harness to evaluate given knapsack solver over given test cases
 
@@ -109,8 +112,8 @@ def solve(solver_file_name, problem, time_limit, mem_limit):
 
 def parse_args(argv):
     p = argparse.ArgumentParser()
-    p.add_argument('solver', metavar='FILE')
-    p.add_argument('problem_files', metavar='FILE', nargs='+')
+    p.add_argument('solver', metavar='SOLVER_PY')
+    p.add_argument('problem_files', metavar='PROBLEM_FILE', nargs='+')
     p.add_argument('--time-limit', metavar='t', type=int, default=60, help='max cpu time (seconds)')
     p.add_argument('--mem-limit', metavar='m', type=int, default=2000000000, help='max mem (bytes)')
     p.add_argument('-n', metavar='NPROCS', type=int, default=4, help='number of solves to test in parallel')
